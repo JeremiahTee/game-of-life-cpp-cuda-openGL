@@ -39,6 +39,7 @@ const int font = (int)GLUT_BITMAP_HELVETICA_18;
 const uint32_t WIDTH = 500, HEIGHT = 500;
 int cell[WIDTH][HEIGHT] = { { } }; //Canvas of pixels (cells) 500 x 500
 bool canMedCellRadiate;
+#define PI 3.14159265
 
 uint32_t cancerCellLimit = WIDTH * HEIGHT * 0.25;
 
@@ -70,7 +71,6 @@ struct ParallelMedInjection {
 			spawnMedecineCells(radius, x, y);
 	};
 };
-
 
 // Threading
 std::thread worker_thread[4];
@@ -159,16 +159,13 @@ void spawnMedecineCells(int radius, int x, int y)
 					med.x = i;
 					med.y = j;
 					med.currentState = 2;
-					medecine_cells.push_back(med);
-					previousStateBeforeMed.push_back(cell[i][j]); //store the previous state before it was made a med cell
+					
 					cell[i][j] = 2;
 
 					medCount++;
 				}
 			}
 		}
-		//Cap the number of med cells for now
-		medecine_cells.reserve(medCount);
 	}
 }
 
@@ -243,19 +240,6 @@ bool insideSection(int x, int y, int originX, int originY, int sectorStartX1, in
 		&& isWithinRadius(relativeX, relativeY, radius * radius);
 }
 
-void moveMedCell(int x, int y)
-{
-	//Move med cell based on its position within the circle
-
-	//Quadrant 1
-	
-	//Quadrant 2
-
-	//Quadrant 3
-
-	//Quadrant 4
-}
-
 void updateMedCell(int x, int y)
 {
 	Cell med;
@@ -273,7 +257,6 @@ static void display()
 	glClearColor(50 / 256.0f, 150 / 256.0f, 200 / 256.0f, 1); //show borders for aesthetic
 
 	GLfloat red, green, blue;
-
 
 	//Iterate over cells
 	for (uint32_t i = 0; i < WIDTH - 5; i++) {
@@ -415,7 +398,9 @@ int main(int argc, char** argv)
 
 void keyboard(unsigned char key, int x, int y)
 {
-	//Press 'S'  to spawn medecine cells
+	tbb::task_scheduler_init init;
+	
+	//Press 'S'  to spawn medecine cells at user given input
 	switch (key)
 	{
 	case 's':
@@ -426,19 +411,32 @@ void keyboard(unsigned char key, int x, int y)
 		std::cin >> x;
 		std::cout << "Enter a y position for the center of the circle (must be lower than 500): " << std::endl;
 		std::cin >> y;
-
-		tbb::task_scheduler_init init;
 		
-		ParallelMedInjection injection;
-		injection.x = x;
-		injection.y = y;
-		injection.radius = rad;
-		
-		tbb::parallel_for(tbb::blocked_range<int>(1, 20), injection);
-		//spawnMedecineCells(rad, x, y);
+		ParallelMedInjection userInjection;
+		userInjection.x = x;
+		userInjection.y = y;
+		userInjection.radius = rad;
+	
+		tbb::parallel_for(tbb::blocked_range<int>(1, PI * userInjection.radius * userInjection.radius * 0.25), userInjection);
 		
 		break;
-	case 'r': //Remove all medecine cells
+	//Press 'D' to spawn two group of med cells at (150,150) & (350,350)
+	case 'd':
+		std::cout << "Spawning two groups of med cells with radius 30 px at (150, 150) and (350, 350) respectively" << std::endl;
+
+		ParallelMedInjection firstInject;
+		firstInject.x = 150;
+		firstInject.y = 150;
+		firstInject.radius = 30;
+
+		ParallelMedInjection secondInject;
+		secondInject.x = 350;
+		secondInject.y = 350;
+		secondInject.radius = 30;
+		
+		tbb::parallel_for(tbb::blocked_range<int>(1, PI * firstInject.radius * firstInject.radius * 0.25), firstInject);
+
+		tbb::parallel_for(tbb::blocked_range<int>(1, PI * secondInject.radius * secondInject.radius * 0.25), secondInject);
 		break;
 	}
 	//Re-display
