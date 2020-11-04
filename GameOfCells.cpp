@@ -30,8 +30,6 @@ void spawnCancerCells();
 void spawnMedecineCells(int radius, int x, int y);
 static int checkCellStatus(int type, int x, int y);
 void removeVectorCell(int typeOfCurrentCell, int x_pos, int y_pos);
-void parallelTBB();
-void forcePallelSetup(int threadid);
 
 //Define needed variables
 
