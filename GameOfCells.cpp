@@ -4,75 +4,70 @@
 //============================================================================
 
 #include <windows.h>
-#include <thread>
 #include <iostream>
 #include <vector>
 #include <ctime>
 #include <string>
+#include "Cell.h"
 #include "glew\glew.h"
 #include "freeglut\freeglut.h"
-#include "tbb/task_scheduler_init.h"
-#include "tbb/parallel_for.h"
-#include "tbb/blocked_range.h"
-#include "tbb/tick_count.h"
+
+//#include <thread>
+//#include "tbb/task_scheduler_init.h"
+//#include "tbb/parallel_for.h"
+//#include "tbb/blocked_range.h"
+//#include "tbb/tick_count.h"
 
 using std::vector;
 using std::uint32_t;
 using std::to_string;
 
+
 void init(void);
 void display(void);
 void keyboard(unsigned char, int, int);
 void drawString(float x, float y, void* font, const char* string);
-void updateMedCell(int x, int y);
+void moveMedCell(int x, int y);
 void spawnCells();
 void spawnCancerCells();
-void spawnMedecineCells(int radius, int x, int y);
+//void spawnMedecineCells(int radius, int x, int y);
 static int checkCellStatus(int type, int x, int y);
 void removeVectorCell(int typeOfCurrentCell, int x_pos, int y_pos);
 
 //Define needed variables
 
 const int font = (int)GLUT_BITMAP_HELVETICA_18;
-const uint32_t WIDTH = 500, HEIGHT = 500;
-int cell[WIDTH][HEIGHT] = { { } }; //Canvas of pixels (cells) 500 x 500
+const uint32_t WIDTH = 500;
+const uint32_t HEIGHT = 500;
+int cell[WIDTH][HEIGHT];
+int medCount = 0;
+
 bool canMedCellRadiate;
 #define PI 3.14159265
 
 uint32_t cancerCellLimit = WIDTH * HEIGHT * 0.25;
 
-struct Cell
-{
-	int x;
-	int y;
-	int currentState; //0: cancer, 1: health, 2: medecine
-	int previousState;
-	int direction[1][1];
-}; bool operator==(const Cell& cellOne, const Cell& cellTwo) //comparison operator to compare cells
-{
-	return cellOne.x == cellTwo.x && cellOne.y == cellTwo.y;
-}
 
 vector<Cell> healthy_cells;
 vector<Cell> cancer_cells;
 vector<Cell> medecine_cells;
 vector<uint32_t> previousStateBeforeMed;
 
-struct ParallelMedInjection {
+//struct ParallelMedInjection {
+//
+//	int radius;
+//	int x;
+//	int y;
+//	
+//	void operator()(const tbb::blocked_range<int>& range) const {
+//		for (int i = range.begin(); i != range.end(); ++i)
+//			spawnMedecineCells(radius, x, y);
+//	};
+//};
 
-	int radius;
-	int x;
-	int y;
-	
-	void operator()(const tbb::blocked_range<int>& range) const {
-		for (int i = range.begin(); i != range.end(); ++i)
-			spawnMedecineCells(radius, x, y);
-	};
-};
-
-// Threading
-std::thread worker_thread[4];
-void workThreadCell(int x1, int y1, int x2, int y2);
+//// Threading
+//std::thread worker_thread[4];
+//void workThreadCell(int x1, int y1, int x2, int y2);
 
 //Initializes OpenGL
 void init() {
@@ -134,6 +129,7 @@ void spawnCells() {
 	spawnCancerCells();
 }
 
+/*
 //Spawn Medecine cells within a 'circle'
 void spawnMedecineCells(int radius, int x, int y)
 {
@@ -165,7 +161,7 @@ void spawnMedecineCells(int radius, int x, int y)
 			}
 		}
 	}
-}
+}*/
 
 //Removes cell from the appropriate vector depending on the cell type and position
 void removeVectorCell(int typeOfCurrentCell, int x_pos, int y_pos)
@@ -238,13 +234,37 @@ bool insideSection(int x, int y, int originX, int originY, int sectorStartX1, in
 		&& isWithinRadius(relativeX, relativeY, radius * radius);
 }
 
-void updateMedCell(int x, int y)
+void updateMedCells()
+{
+	for(int i = 0; i < 500; i++)
+	{
+		for(int j = 0; j < 500; j++)
+		{
+			if(cell[i][j] == 2)
+			{
+				Cell med;
+				med.x = i;
+				med.y = j;
+				med.currentState = 2;
+			}
+		}
+	}
+}
+
+void moveMedCell(int x, int y)
 {
 	Cell med;
 	med.x = x;
 	med.y = y;
 	cell[x][y] = 2;
 	medecine_cells.push_back(med);
+	medCount = medecine_cells.size(); //update med count
+}
+
+void spawnMedCellsWithCUDAAndUpdate(int rad, int x, int y, int cell[500][500], int medCount)
+{
+	spawnMedecineCellsCUDA(rad, x, y, cell, medCount);
+	updateMedCells();
 }
 
 //Function that updates the view
@@ -286,14 +306,14 @@ static void display()
 					switch(direction)
 					{
 					case 0:
-						updateMedCell(i + rand() % 2, j + rand() % 2);
+						moveMedCell(i + rand() % 2, j + rand() % 2);
 						break;
 					case 1:
-						updateMedCell(i - rand() % 2, j);
+						moveMedCell(i - rand() % 2, j);
 					case 2:
-						updateMedCell(i, j + rand() % 2);
+						moveMedCell(i, j + rand() % 2);
 					case 3:
-						updateMedCell(i + rand() % 2, j);
+						moveMedCell(i + rand() % 2, j);
 					}
 
 					//Restore cell to previous state
@@ -341,17 +361,17 @@ static void display()
 	glutSwapBuffers(); //swaps back buffer to screen buffer
 }
 
-void workThreadCell(int initialX, int initialY, int lastX, int lastY)
-{
-	
-	for (int i = initialX; i < lastX; i++)
-	{
-		for (int j = lastY; j < initialY; j++)
-		{
-			checkCellStatus(cell[i][j], i, j);
-		}
-	}
-}
+//void workThreadCell(int initialX, int initialY, int lastX, int lastY)
+//{
+//	
+//	for (int i = initialX; i < lastX; i++)
+//	{
+//		for (int j = lastY; j < initialY; j++)
+//		{
+//			checkCellStatus(cell[i][j], i, j);
+//		}
+//	}
+//}
 
 void update(int value) {	
 	glutPostRedisplay();
@@ -364,6 +384,7 @@ void task(int x, int y, GLfloat r, GLfloat g, GLfloat b) {
 	glutTimerFunc(0, update, 0);
 }
 
+
 int main(int argc, char** argv)
 {
 
@@ -375,16 +396,16 @@ int main(int argc, char** argv)
 	init();
 	spawnCells();
 
-	//Assign threads to each quadrant in the grid
-	worker_thread[0] = std::thread(workThreadCell, 0, 0, 250, 250);
-	worker_thread[1] = std::thread(workThreadCell, 250, 0, 500, 250);
-	worker_thread[2] = std::thread(workThreadCell, 0, 250, 250, 500);
-	worker_thread[3] = std::thread(workThreadCell, 250, 250, 500, 500);
+	////Assign threads to each quadrant in the grid
+	//worker_thread[0] = std::thread(workThreadCell, 0, 0, 250, 250);
+	//worker_thread[1] = std::thread(workThreadCell, 250, 0, 500, 250);
+	//worker_thread[2] = std::thread(workThreadCell, 0, 250, 250, 500);
+	//worker_thread[3] = std::thread(workThreadCell, 250, 250, 500, 500);
 	
 	glutDisplayFunc(display);
 
-	for (int i = 0; i < 4; i++)
-		worker_thread[i].join();
+	//for (int i = 0; i < 4; i++)
+	//	worker_thread[i].join();
 	
 	glutKeyboardFunc(keyboard);
 	glutTimerFunc(0, update, 0);
@@ -396,7 +417,7 @@ int main(int argc, char** argv)
 
 void keyboard(unsigned char key, int x, int y)
 {
-	tbb::task_scheduler_init init;
+	//tbb::task_scheduler_init init;
 	
 	//Press 'S'  to spawn medecine cells at user given input
 	switch (key)
@@ -409,20 +430,24 @@ void keyboard(unsigned char key, int x, int y)
 		std::cin >> x;
 		std::cout << "Enter a y position for the center of the circle (must be lower than 500): " << std::endl;
 		std::cin >> y;
-		
-		ParallelMedInjection userInjection;
+
+		spawnMedCellsWithCUDAAndUpdate(rad, x, y, cell, medCount); //spawnMedecineCells CUDA implementation will call CUDA kernel function "kernel_computeMedecineCells"
+
+		//TBB related code
+		/*ParallelMedInjection userInjection;
 		userInjection.x = x;
 		userInjection.y = y;
 		userInjection.radius = rad;
 	
 		tbb::parallel_for(tbb::blocked_range<int>(1, PI * userInjection.radius * userInjection.radius * 0.25), userInjection);
-		
+		*/
 		break;
 	//Press 'D' to spawn two group of med cells at (150,150) & (350,350)
 	case 'd':
 		std::cout << "Spawning two groups of med cells with radius 30 px at (150, 150) and (350, 350) respectively" << std::endl;
 
-		ParallelMedInjection firstInject;
+		//TBB related code
+		/*ParallelMedInjection firstInject;
 		firstInject.x = 150;
 		firstInject.y = 150;
 		firstInject.radius = 30;
@@ -434,7 +459,7 @@ void keyboard(unsigned char key, int x, int y)
 		
 		tbb::parallel_for(tbb::blocked_range<int>(1, PI * firstInject.radius * firstInject.radius * 0.25), firstInject);
 
-		tbb::parallel_for(tbb::blocked_range<int>(1, PI * secondInject.radius * secondInject.radius * 0.25), secondInject);
+		tbb::parallel_for(tbb::blocked_range<int>(1, PI * secondInject.radius * secondInject.radius * 0.25), secondInject);*/
 		break;
 	}
 	//Re-display
@@ -458,6 +483,7 @@ static int checkCellStatus(int type, int x, int y) {
 			medNeighbourX_position.push_back(i);
 			medNeighbourY_position.push_back(y - 1);
 		}
+		
 
 		if (cell[i][y + 1] == 0) //cell directly above is cancer
 			cancerNeighbours++;
