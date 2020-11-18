@@ -34,8 +34,6 @@ void spawnMedecineCellsCUDA(int radius, int x, int y, int cell[500][500], int me
 	//Copy cell array from host to the device
 	cudaMemcpy(d_cell, cell, size, cudaMemcpyHostToDevice);
 
-	//dim3 blockDim(500, 500);
-	
 	//Run kernel
 	kernel_computeMedecineCells << <1,1 >> >(radius, x, y, d_cell, medCount);
 	
@@ -48,52 +46,3 @@ void spawnMedecineCellsCUDA(int radius, int x, int y, int cell[500][500], int me
 	//Free allocated memory
 	cudaFree(d_cell);
 }
-
-/*
- * __global__
-void kernel_computeMedecineCells(int radius, int x, int y, int* cell, int medCount)
-{
-	for (uint32_t i = 0; i < 500 - 5; i++)
-	{
-		for (uint32_t j = 0; j < 500 - 5; j++)
-		{
-			uint32_t a = i - x;
-			uint32_t b = j - y;
-
-			//The cell at x,y is inside the circle
-			if (a * a + b * b <= radius * radius)
-			{
-				cell(i, j) = 2;
-
-					medCount++;
-			}
-		}
-	}
-}
-
-void spawnMedecineCellsCUDA(int radius, int x, int y, int cell[500][500], int medCount)
-{
-	int* d_cell[500][500];
-	int size = 500 * 500 * sizeof(*d_cell);
-	
-	//Allocate memory to array
-	cudaMalloc((void**)&d_cell, size);
-
-	//Copy cell array from host to the device
-	cudaMemcpy(d_cell, cell, size, cudaMemcpyHostToDevice);
-
-	dim3 blockDim(500, 500);
-	
-	//Run kernel
-	kernel_computeMedecineCells << <1,blockDim >> >(radius, x, y, d_cell, medCount);
-	
-	// Wait on GPU before accessing host
-	cudaDeviceSynchronize();
-
-	//Copy cell array from device to the host
-	cudaMemcpy(&cell, d_cell, size, cudaMemcpyDeviceToHost);
-
-	//Free allocated memory
-	cudaFree(d_cell);
-}
- */
