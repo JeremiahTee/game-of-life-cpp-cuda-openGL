@@ -22,7 +22,6 @@ using std::vector;
 using std::uint32_t;
 using std::to_string;
 
-
 void init(void);
 void display(void);
 void keyboard(unsigned char, int, int);
@@ -46,7 +45,6 @@ bool canMedCellRadiate;
 #define PI 3.14159265
 
 uint32_t cancerCellLimit = WIDTH * HEIGHT * 0.25;
-
 
 vector<Cell> healthy_cells;
 vector<Cell> cancer_cells;
