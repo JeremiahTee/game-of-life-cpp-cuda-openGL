@@ -15,7 +15,13 @@
 #include "tbb/parallel_for.h"
 #include "tbb/blocked_range.h"
 #include "tbb/tick_count.h"
+#define CL_HPP_MINIMUM_OPENCL_VERSION 120
+#define CL_HPP_TARGET_OPENCL_VERSION 120
+#include <CL/cl2.hpp>
 
+using std::string;
+using std::cin;
+using std::cout;
 using std::vector;
 using std::uint32_t;
 using std::to_string;
@@ -40,6 +46,47 @@ bool canMedCellRadiate;
 #define PI 3.14159265
 
 uint32_t cancerCellLimit = WIDTH * HEIGHT * 0.25;
+
+// Define needed OpenCL variables
+// GPU compute device id
+cl_device_id gpu_device_id;
+// GPU compute context
+cl_context gpu_context;
+// GPU compute command queue
+cl_command_queue gpu_commands;
+// GPU compute program
+cl_program gpu_program;
+// GPU compute kernel
+cl_kernel gpu_kernel;
+
+// CPU compute device id
+cl_device_id cpu_device_id;
+// CPU compute context
+cl_context cpu_context;
+// CPU compute command queue
+cl_command_queue cpu_commands;
+// GPU compute program
+cl_program cpu_program;
+// GPU compute kernel
+cl_kernel cpu_kernel;
+
+// Error code returned from api calls
+int err;
+
+// Device memory used for the input array
+cl_mem readQuad;
+// Device memory used for the output array
+cl_mem writeQuad;
+
+// Device memory used for the input display array
+cl_mem colorQuad;
+
+// Global domain size for our calculation
+size_t global;
+// Local domain size for our calculation
+size_t local;
+
+int windowSize = 500 * 500;
 
 struct Cell
 {
@@ -247,6 +294,124 @@ void updateMedCell(int x, int y)
 	medecine_cells.push_back(med);
 }
 
+/** OpenCL Kernel GPU method **/
+const char* KernelCPUSource = "\n\
+__kernel void UpdateWithCPU(__global int* colorQuad)\n\
+{\n\
+	Cell healthy;\n\
+	for (int i = 0; i < WIDTH; i++) {\n\
+		for (int j = 0; j < HEIGHT; j++) {\n\
+			healthy.x = i;\n\
+			healthy.y = j;\n\
+			healthy.currentState = 1;\n\
+			healthy.previousState = 1;\n\
+			healthy_cells.push_back(healthy);\n\
+			cell[i][j] = 1;\n\
+		}\n\
+	}\n\
+spawnCancerCells();\n\
+}\n\
+\n""";
+
+/** OpenCL Kernel GPU method for updating cells **/
+
+const char* KernelGPUSource = "\n\
+__kernel void UpdateWithGPU(__global int* readQuad, __global int* writeQuad)\n\
+{\n\
+    /**\n\
+    @Desc : Updates each cell state using GPU kernel\n\
+    */\n\
+canMedCellRadiate = false;\n\
+std::uint32_t cancerNeighbours = 0;\n\
+std::uint32_t medecineNeighbours = 0;\n\
+std::vector<std::uint32_t> medNeighbourX_position;\n\
+std::vector<std::uint32_t> medNeighbourY_position;\n\
+for (int i = (x - 1); i < (x + 2); i++) {\n if (cell[i][y - 1] == 0)\n\ cancerNeighbours++;\n\
+if (cell[i][y - 1] == 2) { \n\
+medecineNeighbours++;\n\
+medNeighbourX_position.push_back(i)\n\
+medNeighbourY_position.push_back(y - 1);\n\
+}\n\
+if (cell[i][y + 1] == 0)\n\
+	erNeighbours++;\n\
+if (cell[i][y + 1] == 2) {\n\
+		medecineNeighbours++;\n\
+		medNeighbourX_position.push_back(i);\n\
+		medNeighbourY_position.push_back(y + 1);\n\
+	}\n\
+}\n\
+if (cell[x - 1][y] == 0)\n\
+cancerNeighbours++;\n\
+\n\
+if (cell[x + 1][y] == 0)  \n\
+cancerNeighbours++;\n\
+if (cell[x - 1][y] == 2) { \n\
+	medecineNeighbours++;\n\
+	medNeighbourX_position.push_back(x - 1);\n\
+	medNeighbourY_position.push_back(y);\n\
+}\n\
+\n\
+if (cell[x + 1][y] == 2) { \n\
+	medecineNeighbours++;\n\
+	medNeighbourX_position.push_back(x + 1);\n\
+	medNeighbourY_position.push_back(y);\n\
+}\n\
+\n\
+if (type == 0) { \n\
+	if (medecineNeighbours > 6)\n\
+	{\n\
+		type = 1;\n\
+		removeVectorCell(0, x, y); \n\
+\n\
+		\n\
+		for (int i = 0; i < medNeighbourX_position.size(); i++)\n\
+		{\n\
+			for (int j = 0; j < medNeighbourY_position.size(); j++)\n\
+			{\n\
+				Cell healthy;\n\
+				healthy.x = medNeighbourX_position.at(i);\n\
+				healthy.y = medNeighbourY_position.at(j);\n\
+				cell[healthy.x][healthy.y] = 1;\n\
+				removeVectorCell(2, i, j); \n\
+			}\n\
+		}\n\
+	}\n\
+}\n\
+else if (type == 1) \n\
+{\n\
+	if (cancerNeighbours > 6)\n\
+	{\n\
+		type = 0; \n\
+		removeVectorCell(1, x, y); \n\
+	}\n\
+}\n\
+else \n\
+{\n\
+	if (rand() % 2 == 0)\n\
+return type;\n\
+\n\"";
+
+int openCLupdate()
+{
+	/**
+	 @Desc : Helper function for using OpenCL to update cells in parallel. Launches the OpenCL GPU kernel
+	 */
+
+	 // Write our initial data set into the read and write array in device memory
+	err = clEnqueueWriteBuffer(gpu_commands, readQuad, CL_TRUE, 0, sizeof(int) * windowSize, cell, 0, NULL, NULL);
+	err = clEnqueueWriteBuffer(gpu_commands, writeQuad, CL_TRUE, 0, sizeof(int) * windowSize, cell, 0, NULL, NULL);
+	err = 0;
+	err = clSetKernelArg(gpu_kernel, 0, sizeof(cl_mem), &readQuad);
+	err |= clSetKernelArg(gpu_kernel, 1, sizeof(cl_mem), &writeQuad);
+	err = clGetKernelWorkGroupInfo(gpu_kernel, gpu_device_id, CL_KERNEL_WORK_GROUP_SIZE, sizeof(local), &local, NULL);
+	global = windowSize;
+	err = clEnqueueNDRangeKernel(gpu_commands, gpu_kernel, 1, NULL, &global, &local, 0, NULL, NULL);
+	clFinish(gpu_commands);
+	err = clEnqueueReadBuffer(gpu_commands, writeQuad, CL_TRUE, 0, sizeof(int) * windowSize, cell, 0, NULL, NULL);
+
+	return err;
+}
+
 //Function that updates the view
 static void display()
 {
@@ -342,8 +507,7 @@ static void display()
 }
 
 void workThreadCell(int initialX, int initialY, int lastX, int lastY)
-{
-	
+{	
 	for (int i = initialX; i < lastX; i++)
 	{
 		for (int j = lastY; j < initialY; j++)
@@ -353,7 +517,10 @@ void workThreadCell(int initialX, int initialY, int lastX, int lastY)
 	}
 }
 
-void update(int value) {	
+void update(int value) {
+	//Update cells in parallel
+	openCLupdate();
+	
 	glutPostRedisplay();
 	glutTimerFunc((1.0f / 30.0f) * 1000.0f, update, 0);
 }
@@ -366,7 +533,37 @@ void task(int x, int y, GLfloat r, GLfloat g, GLfloat b) {
 
 int main(int argc, char** argv)
 {
+	int const MAX_PLATFORMS = 10;
+	int const MAX_DEVICES = 10;
+	char dname[500];
+	cl_device_id devices[MAX_DEVICES];
+	cl_uint num_devices, entries;
+	cl_ulong long_entries;
+	int d, platform;
+	cl_int err;
+	cl_uint num_platforms;
+	cl_platform_id platform_id[MAX_PLATFORMS];
+	size_t p_size;
 
+	//Query platform info
+	err = clGetPlatformIDs(MAX_PLATFORMS, platform_id, &num_platforms);
+	if (err != CL_SUCCESS)
+	{
+		printf("Error: Failed to get clGetPlatformIDs =%d \n", err);
+		return 0;
+
+	}
+	printf("Found %d platforms \n", num_platforms);
+
+	for (platform = 0; platform < num_platforms; platform++) {
+		clGetPlatformInfo(platform_id[platform], CL_PLATFORM_NAME, 500, dname, NULL);
+		printf("CL_PLATFORM_NAME = %s\n", dname);
+		clGetPlatformInfo(platform_id[platform], CL_PLATFORM_VERSION, 500, dname, NULL);
+		printf("CL_PLATFORM_VERSION = %s\n", dname);
+		clGetDeviceIDs(platform_id[platform], CL_DEVICE_TYPE_ALL, 10, devices, &num_devices);
+		printf("%d devices found\n", num_devices);
+	}
+	
 	glutInit(&argc, argv);
 	glutInitDisplayMode(GLUT_RGB | GLUT_DOUBLE | GLUT_DEPTH);
 	glutInitWindowSize(WIDTH, HEIGHT);
@@ -374,7 +571,7 @@ int main(int argc, char** argv)
 	glutCreateWindow("2D Cell Growth");
 	init();
 	spawnCells();
-
+	
 	//Assign threads to each quadrant in the grid
 	worker_thread[0] = std::thread(workThreadCell, 0, 0, 250, 250);
 	worker_thread[1] = std::thread(workThreadCell, 250, 0, 500, 250);
@@ -390,6 +587,18 @@ int main(int argc, char** argv)
 	glutTimerFunc(0, update, 0);
 
 	glutMainLoop();
+
+	// Cleanup
+	clReleaseMemObject(readQuad);
+	clReleaseMemObject(writeQuad);
+	clReleaseProgram(gpu_program);
+	clReleaseProgram(cpu_program);
+	clReleaseKernel(gpu_kernel);
+	clReleaseKernel(cpu_kernel);
+	clReleaseCommandQueue(gpu_commands);
+	clReleaseCommandQueue(cpu_commands);
+	clReleaseContext(gpu_context);
+	clReleaseContext(cpu_context);
 	
 	return 0;
 }
