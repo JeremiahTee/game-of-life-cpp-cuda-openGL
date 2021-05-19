@@ -1,1 +1,2 @@
-# Project about multi-core programming, OpenGL, OpenCL, multi-threading
+# Cell simulation (Game of Life variation) in OpenCL, OpenGL and CUDA
+
