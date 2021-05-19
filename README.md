@@ -1,2 +1,1 @@
-# 426-Asg1
-COMP 426 - Assignment 1
+# Project about multi-core programming, OpenGL, OpenCL, multi-threading
